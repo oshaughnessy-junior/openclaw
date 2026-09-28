@@ -46,6 +46,7 @@ import {
   type TranscriptEvent,
 } from "./session-accessor.js";
 import type { LatestTranscriptAssistantText } from "./session-accessor.types.js";
+import { readRestoredSessionTranscript } from "./session-cold-storage-read.js";
 import type {
   SessionLifecycleRevisionExpectation,
   SessionTranscriptTurnLifecyclePatch,
@@ -249,7 +250,6 @@ async function readRecentUserAssistantTextFromSqliteTranscript(
       sessionId: scope.sessionId,
       storePath: scope.storePath,
     };
-    const { readRestoredSessionTranscript } = await import("./session-cold-storage-read.js");
     return await readRestoredSessionTranscript(readScope, () => {
       const recent: SessionRecentConversationText[] = [];
       for (let offset = 0; recent.length < limit; offset += pageSize) {
@@ -333,7 +333,6 @@ export async function readLatestAssistantTextFromSessionTranscript(
   const sqliteScope =
     target && typeof target === "object" ? target : parseSqliteSessionFileMarker(target);
   if (sqliteScope) {
-    const { readRestoredSessionTranscript } = await import("./session-cold-storage-read.js");
     return readRestoredSessionTranscript(sqliteScope, () =>
       readLatestTranscriptAssistantText(sqliteScope),
     );

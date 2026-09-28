@@ -59,7 +59,7 @@ import type {
   SessionColdWorkerData,
 } from "./session-cold-storage-worker.js";
 import { reclaimSqliteFreePages } from "./session-history-archive-pruning.js";
-import { collectAdmissionProtectedSessionIds } from "./session-history-eviction.js";
+import { collectAdmissionProtectedSessionIds } from "./session-history-eviction-candidates.js";
 import { withSessionHistoryWorkerDatabase } from "./session-transcript-worker-runtime.js";
 import { resolveSessionStoreTargets } from "./targets.js";
 import { captureSessionTranscriptStorageEnvironment } from "./transcript-target-binding.js";

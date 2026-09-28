@@ -28,7 +28,7 @@ import type {
 } from "../skills/workshop/store.worker-contract.js";
 import type { TranscriptWriteOperations } from "../transcripts/store-write.worker-contract.js";
 import type { OnboardingRecommendationWriteOperations } from "./onboarding-recommendations.kernel.js";
-import type { UserProfileWorkerOperations } from "./user-profiles.worker.js";
+import type { UserProfileWorkerOperations } from "./user-profiles.worker-contract.js";
 import { createWorkerOperationRegistry } from "./worker-operation-registry.js";
 
 export type RegisteredStateWorkerOperations = WebPushWorkerOperations &

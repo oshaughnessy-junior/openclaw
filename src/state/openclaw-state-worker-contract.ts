@@ -66,7 +66,7 @@ import type {
   GitHubSessionReceiptGeneration,
   GitHubSessionReceiptIdentities,
 } from "./github-publication-read.types.js";
-import type { OpenClawAgentDatabaseWorkerLeaseReceipt } from "./openclaw-agent-db-lease.js";
+import type { OpenClawAgentDatabaseWorkerLeaseReceipt } from "./openclaw-agent-db-contract.js";
 import type { OpenClawStateLeaseLifecycleOperations } from "./openclaw-state-lease-context.js";
 import type { RegisteredStateWorkerOperations } from "./openclaw-state-worker-registry.js";
 import type { RepositoryWorkspaceWorkerOperations } from "./session-repository-workspaces.types.js";
