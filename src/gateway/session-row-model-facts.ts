@@ -3,6 +3,7 @@ import type { ModelCatalogEntry } from "../agents/model-catalog.js";
 import type { SessionEntry } from "../config/sessions.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { readPreparedGatewayModelCatalogMetadata } from "./server-model-catalog-view.js";
+import type { Lookup, Row } from "./session-row-projection-record.js";
 import type {
   GatewaySessionModelSource,
   SessionListRowContext,
@@ -13,6 +14,31 @@ import {
   resolveSessionDisplayModelIdentityRefCached,
 } from "./session-utils-model.js";
 import type { SessionListModelCatalog } from "./session-utils.types.js";
+
+/** Bind live projection state to the same prepared or resident source-read boundary. */
+export function createSessionRowModelFactsReader(params: {
+  lookup: (query: Lookup) => Row | undefined;
+  readSourceEntry: (row: Row, key: string, metadataPrepared: boolean) => SessionEntry | undefined;
+  state: () => Pick<
+    Parameters<typeof readSessionRowModelFacts>[0],
+    "cfg" | "modelCatalog" | "rowContext"
+  >;
+}) {
+  return (query: Lookup, metadataPrepared = false) => {
+    const row = params.lookup(query);
+    if (!row?.entry) {
+      throw new Error("Session changed while preparing search facts; retry the request");
+    }
+    return readSessionRowModelFacts({
+      ...params.state(),
+      ...row,
+      source: {
+        entry: row.storedEntry,
+        readSourceEntry: (key) => params.readSourceEntry(row, key, metadataPrepared),
+      },
+    });
+  };
+}
 
 /** Search and row presentation share model policy without preparing unrelated row fields. */
 export function readSessionRowModelFacts(params: {

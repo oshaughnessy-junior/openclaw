@@ -31,6 +31,20 @@ import {
   resolveGatewaySessionStoreTargetWithStore,
 } from "./session-utils-store-lookup.js";
 
+/** Capture retains published identity while category facts wait for worker reconciliation. */
+export function createSessionRowCapture(
+  lookup: (query: records.Lookup) => records.Row | undefined,
+  needsAcquisition: (row: records.Row) => boolean,
+  acquire: (row: records.Row) => records.Row | undefined,
+) {
+  return (query: records.Lookup) => {
+    const row = lookup(query);
+    return row && row.unresolvedDatabaseFacts !== "category" && needsAcquisition(row)
+      ? (acquire(row) ?? row)
+      : row;
+  };
+}
+
 /** Exact descriptions use the projection's custody and materialization owners in one frame. */
 export function createSessionRowDescriptionReader(owner: {
   runInOwner: <T>(consume: () => T) => T;
@@ -120,6 +134,9 @@ export function createSessionRowMaterializer(owner: {
         if (accepted && !databaseFacts) {
           continue;
         }
+        if (!accepted && current?.unresolvedDatabaseFacts === "category") {
+          continue;
+        }
         const row =
           current && (accepted ? current : owner.acquireEntry(current, owner.readEntry(current)));
         if (row && isColdArchivedSessionRow(row) && !accepted) {
@@ -173,7 +190,13 @@ export function createSessionRowMaterializer(owner: {
           const row =
             current &&
             owner.acquireEntry(
-              databaseFacts ? { ...current, hasBoard: databaseFacts.hasBoard } : current,
+              databaseFacts
+                ? {
+                    ...current,
+                    hasBoard: databaseFacts.hasBoard,
+                    unresolvedDatabaseFacts: undefined,
+                  }
+                : current,
               databaseFacts?.entry,
             );
           if (owner.revision() !== revision) {
