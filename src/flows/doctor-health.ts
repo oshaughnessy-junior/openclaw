@@ -188,8 +188,6 @@ async function runDoctorHealthFlowWithResult(
   try {
     if (options.repair === true || options.yes === true) {
       try {
-        const { prepareDoctorDatabasePreflight } =
-          await import("../commands/doctor-database-preflight.js");
         preparedArchiveDiscovery = (databasePreflight ?? (await prepareDoctorDatabasePreflight()))
           .agentDatabaseMigrationDiscovery;
         if (preparedArchiveDiscovery) {

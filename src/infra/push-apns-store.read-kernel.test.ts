@@ -5,7 +5,7 @@ import {
   readApnsRegistrationFromDatabase,
   readApnsRegistrationsFromDatabase,
   type apnsRegistrationFromRow,
-} from "./push-apns-store.js";
+} from "./push-apns-store.rows.js";
 
 type RegistrationRow = Parameters<typeof apnsRegistrationFromRow>[0];
 
