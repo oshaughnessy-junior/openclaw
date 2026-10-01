@@ -217,6 +217,20 @@ unknown or ambiguous ownership. Delete only the observed raw rows; callbacks
 retained after maintenance ends cannot authorize later writes.
 
 Trusted bundled and official plugins may also use the optional
+`inspectChannelGroupActivationSessions` and `repairChannelGroupActivationSession`
+methods after session repair. Inspection returns existing group rows for the
+plugin's declared channels. Repair accepts the inspected source and optional
+destination plus an account-scoped thread key in the same group. The host saves
+verified SQLite backups and preserves an explicit destination activation. The plugin
+selects its historical account mapping. The existing row-rewrite owner transfers only
+activation; historical metadata, transcript rows, and child references remain in place.
+For a missing destination, the canonical session creation owner first creates a fresh
+session with the source's group identity, creator, owner, and isolation requirements.
+Interrupted repairs can reuse that valid destination before retiring the source's
+obsolete activation. Ambiguous inputs remain untouched with recovery guidance.
+The repair capability exists only under current offline Doctor authority.
+
+Trusted bundled and official plugins may also use the optional
 `inspectCronJobs` and `repairCronJobs` context methods for explicit cron
 migrations. Inspection is non-creating and returns raw definitions, row IDs,
 ordering, validation findings, and store keys for every persisted partition.

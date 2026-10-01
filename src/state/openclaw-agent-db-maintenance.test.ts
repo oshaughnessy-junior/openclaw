@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { fork } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { expectDefined } from "@openclaw/normalization-core/expect";
@@ -14,6 +15,7 @@ import {
   prepareOpenClawAgentDatabaseWorkerLease,
   releaseOpenClawAgentDatabaseLease,
   runWithAgentDatabaseMaintenanceAuthority,
+  withAgentDatabaseMaintenanceSessionRepair,
 } from "./openclaw-agent-db-lease.js";
 import { getOpenClawAgentDatabaseValidation } from "./openclaw-agent-db-validation-cache.js";
 import {
@@ -23,6 +25,7 @@ import {
   getOpenClawAgentDatabaseIfOpen,
   OPENCLAW_AGENT_SCHEMA_VERSION,
   openOpenClawAgentDatabase,
+  runOpenClawAgentWriteTransaction,
   withAgentDatabaseMaintenanceLease,
 } from "./openclaw-agent-db.js";
 import {
@@ -130,6 +133,52 @@ function withAbortableMaintenance<T>(
 }
 
 describe("asynchronous agent database maintenance admission", () => {
+  it("confines session repair handles to the inspected store and closes their admission", async () => {
+    const f = fixture();
+    const target = { agentId: "worker", path: f.options.pathname, env: f.env };
+    const other = openOpenClawAgentDatabase({ agentId: "other", env: f.env });
+    let reopenRetired: (() => unknown) | undefined;
+    let repaired: ReturnType<typeof openOpenClawAgentDatabase> | undefined;
+    await withAgentDatabaseMaintenanceLease({ env: f.env }, async (maintenance) => {
+      const outsideRepair = AsyncLocalStorage.snapshot();
+      await withAgentDatabaseMaintenanceSessionRepair(
+        {
+          ...target,
+          assertCurrent: () => maintenance.assertOwned(),
+          assertOwnedInTransaction(database) {
+            expect(database.isTransaction).toBe(true);
+            expect(database.location()).toBe(f.state.path);
+            maintenance.assertOwnedInTransaction(database);
+          },
+        },
+        async () => {
+          repaired = openOpenClawAgentDatabase(target);
+          const retained = AsyncLocalStorage.snapshot();
+          reopenRetired = () => retained(() => openOpenClawAgentDatabase(target));
+          expect(() => outsideRepair(() => openOpenClawAgentDatabase(target))).toThrow(
+            "another or expired session repair scope",
+          );
+          expect(() =>
+            openOpenClawAgentDatabase({ agentId: "other", path: other.path, env: f.env }),
+          ).toThrow("maintenance is in progress");
+          runOpenClawAgentWriteTransaction(({ db }) => {
+            db.prepare("UPDATE cache_entries SET value_json = ? WHERE scope = 'maintenance'").run(
+              '{"repaired":true}',
+            );
+          }, target);
+        },
+      );
+      expect(repaired?.db.isOpen).toBe(false);
+      expect(() => reopenRetired!()).toThrow("another or expired session repair scope");
+      expect(() => openOpenClawAgentDatabase(target)).toThrow("maintenance is in progress");
+    });
+    expect(
+      openOpenClawAgentDatabase(target)
+        .db.prepare("SELECT value_json FROM cache_entries WHERE scope = 'maintenance'")
+        .get(),
+    ).toEqual({ value_json: '{"repaired":true}' });
+  });
+
   it("reuses one integrity process across agent maintenance while checking each file afresh", async () => {
     const f = fixture();
     const createTarget = (agentId: string) => {

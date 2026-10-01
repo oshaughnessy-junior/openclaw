@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { cloneEnvWithPlatformSemantics } from "../config/config-env-vars.js";
 import { hasErrnoCode } from "../infra/errno.js";
 import {
   executeSqliteQuerySync,
@@ -10,9 +11,14 @@ import {
   getNodeSqliteKysely,
 } from "../infra/kysely-sync.js";
 import { runWithSqliteBusyTimeout } from "../infra/sqlite-busy-timeout.js";
+import { throwSqliteLifecycleErrors } from "../infra/sqlite-lifecycle-errors.js";
 import { deferSqlitePostCommitPublication } from "../infra/sqlite-post-commit.js";
 import { prepareSqliteReadOnlyLocationSync } from "../infra/sqlite-snapshot-source.js";
-import { readDatabasePathIdentitySync } from "../infra/sqlite-worker-identity.js";
+import {
+  assertDatabaseFileIdentity,
+  readDatabaseFileIdentity,
+  readDatabasePathIdentitySync,
+} from "../infra/sqlite-worker-identity.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { getFileLockProcessStartTime, isPidDefinitelyDead } from "../shared/pid-alive.js";
@@ -20,6 +26,7 @@ import {
   assertAgentDeletionPathFence,
   prepareAgentDeletionPathFence,
 } from "./agent-deletion-journal.js";
+import type { OpenClawAgentDatabase } from "./openclaw-agent-db-contract.js";
 import { withExistingAgentLeaseWrite } from "./openclaw-agent-db-existing-write.js";
 import type { OpenClawAgentDatabaseValidation } from "./openclaw-agent-db-validation-cache.js";
 import {
@@ -72,11 +79,14 @@ export class OpenClawAgentDatabaseLeaseActiveError extends Error {
   }
 }
 
-const maintenanceAuthority = new AsyncLocalStorage<{
+type AgentDatabaseMaintenanceScope = {
   authority: OpenClawStateLeaseContext;
   databasePath: string;
   assertScopeCurrent?: () => void;
-}>();
+  assertCommitCurrent?: (database: DatabaseSync) => void;
+  sessionRepair?: { agentId: string; path: string; env: NodeJS.ProcessEnv; assertAccess(): void };
+};
+const maintenanceAuthority = new AsyncLocalStorage<AgentDatabaseMaintenanceScope>();
 
 /** Ordinary agent worker routing cannot borrow native maintenance authority. */
 export function hasAgentDatabaseMaintenanceAuthority(): boolean {
@@ -96,6 +106,114 @@ export function runWithAgentDatabaseMaintenanceAuthority<T>(
       assertScopeCurrent: scope ? () => scope.assertAdmission() : undefined,
     },
     run,
+  );
+}
+
+/** Admit one inspected session store under the existing offline maintenance owner. */
+export async function withAgentDatabaseMaintenanceSessionRepair<T>(
+  params: {
+    agentId: string;
+    path: string;
+    env: NodeJS.ProcessEnv;
+    assertCurrent(): void;
+    assertOwnedInTransaction(database: DatabaseSync): void;
+  },
+  run: () => Promise<T>,
+): Promise<T> {
+  const scope = maintenanceAuthority.getStore();
+  if (!scope) {
+    throw new Error("Agent database commit fencing requires current maintenance authority.");
+  }
+  scope.authority.assertOwned();
+  params.assertCurrent();
+  const pathname = path.resolve(params.path);
+  const identity = readDatabaseFileIdentity(readDatabasePathIdentitySync(pathname));
+  let active = true;
+  const repairScope: AgentDatabaseMaintenanceScope = {
+    ...scope,
+    sessionRepair: {
+      agentId: normalizeAgentId(params.agentId),
+      path: pathname,
+      env: cloneEnvWithPlatformSemantics(params.env),
+      assertAccess() {
+        if (!active || maintenanceAuthority.getStore() !== repairScope) {
+          throw new Error("Agent database belongs to another or expired session repair scope.");
+        }
+        params.assertCurrent();
+        scope.authority.assertOwned();
+        scope.assertScopeCurrent?.();
+        assertDatabaseFileIdentity(fs.statSync(pathname, { bigint: true }), identity);
+      },
+    },
+    assertCommitCurrent(database) {
+      repairScope.sessionRepair!.assertAccess();
+      scope.assertCommitCurrent?.(database);
+      params.assertOwnedInTransaction(database);
+    },
+  };
+  return maintenanceAuthority.run(repairScope, async () => {
+    const errors: unknown[] = [];
+    let outcome: { value: T } | undefined;
+    try {
+      outcome = { value: await run() };
+    } catch (error) {
+      errors.push(error);
+    }
+    try {
+      const { agentDatabaseLifecycle, closeOpenClawAgentDatabaseByPathAsync } =
+        await import("./openclaw-agent-db-lifecycle.js");
+      const database = agentDatabaseLifecycle.databases.get(pathname);
+      if (
+        database &&
+        (!database.assertMaintenanceAccess ||
+          database.assertMaintenanceAccess === repairScope.sessionRepair!.assertAccess)
+      ) {
+        await closeOpenClawAgentDatabaseByPathAsync(pathname, repairScope.sessionRepair!.agentId);
+      }
+    } catch (error) {
+      errors.push(error);
+    } finally {
+      active = false;
+    }
+    throwSqliteLifecycleErrors(errors, "Session repair and maintenance handle cleanup failed");
+    return outcome!.value;
+  });
+}
+
+export function registerAgentDatabaseSessionRepairAccess(database: OpenClawAgentDatabase): void {
+  const scope = maintenanceAuthority.getStore();
+  if (!scope) {
+    return;
+  }
+  const repair = scope.sessionRepair;
+  if (!repair) {
+    throw new Error(
+      "Agent database maintenance is in progress; retry after openclaw doctor --fix completes.",
+    );
+  }
+  if (repair.agentId !== database.agentId || repair.path !== path.resolve(database.path)) {
+    throw new Error("Agent database is outside the inspected session repair scope.");
+  }
+  repair.assertAccess();
+  database.assertMaintenanceAccess = repair.assertAccess;
+}
+
+/** Shared leases cannot change while the synchronous agent COMMIT is admitted. */
+export function withAgentDatabaseMaintenanceCommit(commit: () => void): void {
+  const scope = maintenanceAuthority.getStore();
+  if (!scope?.assertCommitCurrent) {
+    commit();
+    return;
+  }
+  runOpenClawStateWriteTransaction(
+    ({ db }) => {
+      scope.assertScopeCurrent?.();
+      scope.authority.assertOwnedInTransaction(db);
+      scope.assertCommitCurrent?.(db);
+      commit();
+    },
+    { path: scope.databasePath, env: scope.sessionRepair?.env },
+    { operationLabel: "agent.database.maintenance.commit" },
   );
 }
 
@@ -200,9 +318,21 @@ function claimAgentDatabaseLeaseInDatabase(
   );
   const authority = maintenanceAuthority.getStore();
   if (maintenance || authority) {
-    throw new Error(
-      "Agent database maintenance is in progress; retry after openclaw doctor --fix completes.",
-    );
+    const repair = authority?.sessionRepair;
+    if (
+      !authority ||
+      !repair ||
+      authority.databasePath !== path.resolve(database.path) ||
+      repair.agentId !== owner.agentId ||
+      repair.path !== path.resolve(owner.path)
+    ) {
+      throw new Error(
+        "Agent database maintenance is in progress; retry after openclaw doctor --fix completes.",
+      );
+    }
+    repair.assertAccess();
+    authority.authority.assertOwnedInTransaction(database.db);
+    authority.assertCommitCurrent?.(database.db);
   }
   assertAgentDeletionPathFence(database, deletionFence);
   let invalidated = false;

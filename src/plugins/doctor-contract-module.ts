@@ -40,6 +40,14 @@ export type PluginDoctorCronChange = {
 };
 
 export type PluginDoctorStateMigrationContext = {
+  /** Non-creating session inventory limited to this plugin's declared channels. */
+  inspectChannelGroupActivationSessions?: () => Promise<PluginDoctorGroupActivationSession[]>;
+  /** Offline repair transfers activation using inspected rows, verified backups, and canonical creation. */
+  repairChannelGroupActivationSession?: (input: {
+    source: PluginDoctorGroupActivationSession;
+    destination?: PluginDoctorGroupActivationSession;
+    sessionKey: string;
+  }) => Promise<{ changes: string[] }>;
   /** Trusted plugins only; non-creating inspection includes inactive cron partitions. */
   inspectCronJobs?: () => Promise<PluginDoctorCronInventory>;
   /** Offline repair only. Backs up first, then compares inspected rows before one commit. */
@@ -87,6 +95,13 @@ export type PluginDoctorStateMigrationContext = {
    *  the host fixes the channel identity and doctor state directory. Older test
    *  hosts may omit it. */
   channelIngressQueues?: readonly PluginDoctorChannelIngressQueueAccess[];
+};
+
+export type PluginDoctorGroupActivationSession = {
+  scopeId: string;
+  agentId: string;
+  sessionKey: string;
+  entry: Pick<SessionEntry, "sessionId" | "groupActivation" | "delivery">;
 };
 
 export type PluginDoctorAcpSessionClaim = {

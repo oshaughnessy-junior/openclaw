@@ -32,6 +32,8 @@ export async function backupDoctorMigrationDatabases(params: {
   /** Complete discovery keeps the retry group stable after some migrations finish. */
   databasePaths: readonly string[];
   verifiedSnapshots?: readonly BackupSqliteSnapshotFact[];
+  /** Session-only repairs borrow their current offline Doctor authority. */
+  maintenanceAuthority?: { assertCurrent(): void };
 }): Promise<MigrationMessages> {
   const { detectOpenClawStateDatabaseSchemaMigrations } =
     await import("../state/openclaw-state-db-schema-discovery.js");
@@ -48,14 +50,19 @@ export async function backupDoctorMigrationDatabases(params: {
     pending.add(sharedPath);
   }
   const maintenance = getOpenClawDatabaseMaintenanceScope();
-  if (!maintenance?.ownsSchemaMaintenance) {
+  const assertCurrent = params.maintenanceAuthority
+    ? () => params.maintenanceAuthority!.assertCurrent()
+    : maintenance?.ownsSchemaMaintenance
+      ? () => maintenance.assertAdmission()
+      : undefined;
+  if (!assertCurrent) {
     throw new Error("Pre-migration SQLite backups require Doctor maintenance ownership.");
   }
-  maintenance.assertAdmission();
+  assertCurrent();
   const { createVerifiedSqliteSnapshot } = await import("../infra/sqlite-snapshot.js");
   const { sanitizeOpenClawStateLeaseRows } =
     await import("../state/openclaw-state-snapshot-sanitizer.js");
-  maintenance.assertAdmission();
+  assertCurrent();
   const sources = [...new Set([...pending].map((pathname) => realpathSync.native(pathname)))];
   if (
     sources.every((sourcePath) => {
@@ -100,7 +107,7 @@ export async function backupDoctorMigrationDatabases(params: {
     backupDigest.slice(20, 32),
   ].join("-");
   const assertInventory = () => {
-    maintenance.assertAdmission();
+    assertCurrent();
     for (const { path: pathname, identity } of inventory) {
       const current = statSync(pathname, { bigint: true });
       if (!current.isFile() || current.dev !== identity.dev || current.ino !== identity.ino) {

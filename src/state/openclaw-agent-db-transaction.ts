@@ -13,6 +13,7 @@ import type {
   OpenClawAgentDatabase,
   OpenClawAgentDatabaseOptions,
 } from "./openclaw-agent-db-contract.js";
+import { withAgentDatabaseMaintenanceCommit } from "./openclaw-agent-db-lease.js";
 import {
   agentDatabaseLifecycle as cache,
   retainAgentDatabase,
@@ -52,7 +53,11 @@ export async function runOpenClawAgentWriteWithYieldingAdmission<T>(
         busyTimeoutMs: readSqliteBusyTimeout(database.db),
         databaseLabel: database.path,
         operationLabel: transactionOptions.operationLabel ?? "agent.write",
-        withCommit: getAgentDeletionDatabaseCleanup(captured)?.withCommit,
+        withCommit: (commit) =>
+          withAgentDatabaseMaintenanceCommit(() => {
+            const cleanup = getAgentDeletionDatabaseCleanup(captured);
+            return cleanup ? cleanup.withCommit(commit) : commit();
+          }),
       },
       (write) => {
         if (getOpenClawAgentDatabaseIfOpen(captured) !== database) {

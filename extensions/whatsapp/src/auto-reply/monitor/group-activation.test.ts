@@ -7,8 +7,8 @@ import {
   upsertSessionEntry,
   type SessionEntry,
 } from "openclaw/plugin-sdk/session-store-runtime";
-import { closeOpenClawAgentDatabasesForTest } from "openclaw/plugin-sdk/sqlite-runtime-testing";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { closeOpenClawAgentDatabasesAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
+import { afterEach, describe, expect, it } from "vitest";
 import { resolveGroupActivationFor } from "./group-activation.js";
 
 const GROUP_CONVERSATION_ID = "123@g.us";
@@ -57,19 +57,17 @@ const resolveWorkGroupActivation = (storePath: string) =>
     conversationId: GROUP_CONVERSATION_ID,
   });
 
-const expectWorkGroupActivationEntry = async (
+const expectWorkGroupActivationEntry = (
   storePath: string,
   assertEntry?: (entry: SessionStoreEntry | undefined) => void,
 ) => {
-  await vi.waitFor(() => {
-    const scopedEntry = getSessionEntry({
-      storePath,
-      sessionKey: WORK_GROUP_SESSION_KEY,
-      readConsistency: "latest",
-    });
-    expect(scopedEntry?.groupActivation).toBe("always");
-    assertEntry?.(scopedEntry);
+  const scopedEntry = getSessionEntry({
+    storePath,
+    sessionKey: WORK_GROUP_SESSION_KEY,
+    readConsistency: "latest",
   });
+  expect(scopedEntry?.groupActivation).toBe("always");
+  assertEntry?.(scopedEntry);
 };
 
 const expectNoWorkGroupActivationEntry = (storePath: string) => {
@@ -82,26 +80,17 @@ const expectNoWorkGroupActivationEntry = (storePath: string) => {
   ).toBeUndefined();
 };
 
-const expectResolvedWorkGroupActivation = async (
-  storePath: string,
-  assertEntry?: (entry: SessionStoreEntry | undefined) => void,
-) => {
-  const activation = await resolveWorkGroupActivation(storePath);
-  expect(activation).toBe("always");
-  await expectWorkGroupActivationEntry(storePath, assertEntry);
-};
-
 describe("resolveGroupActivationFor", () => {
   const cleanups: Array<() => Promise<void>> = [];
 
   afterEach(async () => {
-    closeOpenClawAgentDatabasesForTest();
+    await closeOpenClawAgentDatabasesAsync();
     while (cleanups.length > 0) {
       await cleanups.pop()?.();
     }
   });
 
-  it("reads legacy named-account group activation without synthesizing a scoped session", async () => {
+  it("does not read unscoped activation for a named account or synthesize a scoped session", async () => {
     const { storePath, cleanup } = await makeSessionStore({
       [LEGACY_GROUP_SESSION_KEY]: {
         groupActivation: "always",
@@ -112,11 +101,11 @@ describe("resolveGroupActivationFor", () => {
     cleanups.push(cleanup);
 
     const activation = await resolveWorkGroupActivation(storePath);
-    expect(activation).toBe("always");
+    expect(activation).toBe("mention");
     expectNoWorkGroupActivationEntry(storePath);
   });
 
-  it("preserves legacy group activation when the scoped entry already exists without activation", async () => {
+  it("leaves scoped metadata unchanged until Doctor migrates the unscoped activation", async () => {
     const { storePath, cleanup } = await makeSessionStore({
       [LEGACY_GROUP_SESSION_KEY]: {
         groupActivation: "always",
@@ -128,9 +117,13 @@ describe("resolveGroupActivationFor", () => {
     });
     cleanups.push(cleanup);
 
-    await expectResolvedWorkGroupActivation(storePath, (scopedEntry) => {
-      expect(scopedEntry?.sessionId).toBe("scoped-session");
+    expect(await resolveWorkGroupActivation(storePath)).toBe("mention");
+    expect(getSessionEntry({ storePath, sessionKey: WORK_GROUP_SESSION_KEY })).toMatchObject({
+      sessionId: "scoped-session",
     });
+    expect(
+      getSessionEntry({ storePath, sessionKey: WORK_GROUP_SESSION_KEY })?.groupActivation,
+    ).toBeUndefined();
   });
 
   it("does not wake the default account from a work-account scoped group activation", async () => {
@@ -177,40 +170,48 @@ describe("resolveGroupActivationFor", () => {
     });
 
     expect(defaultActivation).toBe("mention");
-    await expectWorkGroupActivationEntry(storePath);
+    expectWorkGroupActivationEntry(storePath);
   });
 
-  it("does not treat mixed-case default account keys as named accounts", async () => {
-    const { storePath, cleanup } = await makeSessionStore({
-      [LEGACY_GROUP_SESSION_KEY]: {
-        groupActivation: "always",
-        sessionId: "legacy-session",
-      },
-    });
-    cleanups.push(cleanup);
+  it.each(["default", "Default"])(
+    "preserves the current %s account activation alongside named accounts",
+    async (accountKey) => {
+      const { storePath, cleanup } = await makeSessionStore({
+        [LEGACY_GROUP_SESSION_KEY]: {
+          groupActivation: "always",
+          sessionId: "legacy-session",
+        },
+      });
+      cleanups.push(cleanup);
 
-    const activation = await resolveGroupActivationFor({
-      cfg: {
-        channels: {
-          whatsapp: {
-            groups: {
-              "*": {
-                requireMention: true,
+      const activation = await resolveGroupActivationFor({
+        cfg: {
+          channels: {
+            whatsapp: {
+              groups: {
+                "*": {
+                  requireMention: true,
+                },
+              },
+              accounts: {
+                [accountKey]: {},
+                work: {},
               },
             },
-            accounts: {
-              Default: {},
-            },
           },
-        },
-        session: { store: storePath },
-      } as never,
-      accountId: "default",
-      agentId: "main",
-      sessionKey: LEGACY_GROUP_SESSION_KEY,
-      conversationId: GROUP_CONVERSATION_ID,
-    });
+          session: { store: storePath },
+        } as never,
+        accountId: "default",
+        agentId: "main",
+        sessionKey: LEGACY_GROUP_SESSION_KEY,
+        conversationId: GROUP_CONVERSATION_ID,
+      });
 
-    expect(activation).toBe("always");
-  });
+      expect(activation).toBe("always");
+      expect(await resolveWorkGroupActivation(storePath)).toBe("mention");
+      expect(
+        getSessionEntry({ storePath, sessionKey: LEGACY_GROUP_SESSION_KEY })?.groupActivation,
+      ).toBe("always");
+    },
+  );
 });

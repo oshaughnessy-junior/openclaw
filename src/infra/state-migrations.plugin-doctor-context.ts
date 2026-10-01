@@ -342,6 +342,20 @@ export function createPluginDoctorStateMigrationContext(params: {
     context.channelIngressQueues = buildChannelIngressQueueAccess(params.channelIngress);
   }
   if (params.trustedForDurableStores) {
+    context.inspectChannelGroupActivationSessions = async () => {
+      params.repairAuthority?.assertCurrent();
+      const { createDoctorGroupActivationSessionAccess } =
+        await import("../commands/doctor-plugin-group-activation.js");
+      params.repairAuthority?.assertCurrent();
+      const access = createDoctorGroupActivationSessionAccess({
+        config: params.config,
+        env,
+        channelIds: params.channelIngress?.channelIds ?? [],
+        authority: params.repairAuthority,
+      });
+      context.repairChannelGroupActivationSession = access.repairChannelGroupActivationSession;
+      return access.inspectChannelGroupActivationSessions!();
+    };
     context.inspectCronJobs = async () => {
       params.repairAuthority?.assertCurrent();
       const { inspectCronJobsForDoctor } = await import("../cron/store/doctor.js");

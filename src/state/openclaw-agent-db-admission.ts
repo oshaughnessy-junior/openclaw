@@ -87,6 +87,7 @@ function assertAgentDatabaseOperationCurrent(
   // Coalesced callers keep their own scope; admission cannot lend its cleanup authority.
   assertAgentDeletionDatabaseCleanupAccess(database, options);
   assertCurrent?.();
+  database.assertMaintenanceAccess?.();
 }
 
 /** Bind admission drivers to the canonical private database-open generator. */

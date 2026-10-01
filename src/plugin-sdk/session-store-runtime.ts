@@ -162,6 +162,24 @@ export function getSessionEntry(params: SessionStoreReadParams): SessionEntry | 
   return entry ? projectPluginSessionEntry(entry) : undefined;
 }
 
+/** Reads an existing canonical session through the read-only worker owner. */
+export async function getSessionEntryAsync(
+  params: SessionStoreReadParams,
+): Promise<SessionEntry | undefined> {
+  const { withSessionEntryReadOnlyInWorker } =
+    await import("../config/sessions/session-entry-read-runtime.js");
+  return withSessionEntryReadOnlyInWorker(
+    toSessionAccessScope(params),
+    () => {},
+    async (read) => {
+      if (!read.ok) {
+        throw read.error;
+      }
+      return read.value ? projectPluginSessionEntry(read.value) : undefined;
+    },
+  );
+}
+
 /** Reads the current session binding of one canonical transport address. */
 export function getConversationSession(params: {
   agentId: string;

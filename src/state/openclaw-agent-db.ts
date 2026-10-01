@@ -53,11 +53,12 @@ import {
   readOpenClawAgentDatabaseIdentity,
 } from "./openclaw-agent-db-identity.js";
 import {
-  hasAgentDatabaseMaintenanceAuthority,
+  registerAgentDatabaseSessionRepairAccess,
   assertOpenClawAgentDatabaseLease,
   claimOpenClawAgentDatabaseLease,
   recordOpenClawAgentDatabaseIntegrityVerified,
   releaseOpenClawAgentDatabaseLease,
+  withAgentDatabaseMaintenanceCommit,
   type OpenClawAgentIntegrityVerificationReceiver,
   type prepareOpenClawAgentDatabaseWorkerLease,
 } from "./openclaw-agent-db-lease.js";
@@ -425,11 +426,7 @@ function* openOpenClawAgentDatabaseSteps(
     admitSqliteSchema(db);
     const database = { agentId, db, path: pathname, walMaintenance };
     openedDatabase = database;
-    if (hasAgentDatabaseMaintenanceAuthority()) {
-      throw new Error(
-        "Agent database maintenance is in progress; retry after openclaw doctor --fix completes.",
-      );
-    }
+    registerAgentDatabaseSessionRepairAccess(database);
     const cleanup = registerAgentDeletionDatabaseCleanup(database, databaseOptions);
     if (cleanup) {
       const release = retainAgentDatabase(db);
@@ -576,7 +573,11 @@ export function runOpenClawAgentWriteTransaction<T>(
         databaseLabel: database.path,
         ...transactionOptions,
         operationLabel: transactionOptions.operationLabel ?? "agent.write",
-        withCommit: getAgentDeletionDatabaseCleanup(options)?.withCommit,
+        withCommit: (commit) =>
+          withAgentDatabaseMaintenanceCommit(() => {
+            const cleanup = getAgentDeletionDatabaseCleanup(options);
+            return cleanup ? cleanup.withCommit(commit) : commit();
+          }),
       },
     ),
   );
@@ -624,6 +625,7 @@ export function getOpenClawAgentDatabaseIfOpen(
     );
   }
   assertAgentDeletionDatabaseCleanupAccess(database, options);
+  database.assertMaintenanceAccess?.();
   observeOpenClawDatabaseMaintenanceResource(database.db);
   refreshAgentDatabaseIdleTimer(database);
   return database;

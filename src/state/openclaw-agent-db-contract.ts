@@ -38,6 +38,8 @@ export type OpenClawAgentDatabase = {
   db: DatabaseSync;
   path: string;
   walMaintenance: SqliteWalMaintenance;
+  /** Maintenance-owned handles cannot lend their admission to another scope. */
+  assertMaintenanceAccess?: () => void;
 };
 
 /** Options for resolving and opening one agent database. */

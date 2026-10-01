@@ -317,6 +317,27 @@ Scope the opt-in to one account under `channels.whatsapp.accounts.<id>.pluginHoo
 
     Session-level activation command: `/activation mention` or `/activation always`. This updates session state (not global config) and is owner-gated.
 
+    When no default account is configured, Doctor migrates older unscoped group activation to the account recorded in the session's
+    delivery metadata, or the sole configured account when no account was recorded.
+    It saves verified SQLite backups before transferring the activation setting;
+    an existing account-scoped activation wins. If several accounts could own an
+    old setting, Doctor preserves the source and names the group to repair with
+    `/activation`. Runtime never copies one account's setting into another account.
+    Each session keeps its own history, child references, and other settings. If the
+    scoped session does not exist, Doctor creates a fresh session that inherits the
+    source's group identity, creator, owner, and isolation requirements.
+    A configured default account keeps its unscoped sessions and activation unchanged;
+    named accounts no longer inherit that default account's activation.
+
+    To finish an ambiguous repair, first set `/activation` in the intended account's
+    group. Then clear only the obsolete source setting using the exact session key
+    from Doctor's warning, and rerun Doctor:
+
+    ```bash
+    openclaw gateway call sessions.patch --params '{"key":"agent:main:whatsapp:group:123@g.us","groupActivation":null}'
+    openclaw doctor --fix
+    ```
+
   </Tab>
 </Tabs>
 

@@ -39,12 +39,14 @@ export function rewriteDoctorSessionEntries(params: {
   sessionKeys: readonly string[];
   transform: (entry: SessionEntry, sessionKey: string) => SessionEntry;
   updateDeliveryProjection?: boolean;
+  assertCurrent?: () => void;
 }): number {
   const resolved = resolveSqliteScope({ ...params.scope, sessionKey: "" });
   let rewritten = 0;
   for (const batch of iterateDoctorSessionKeyBatches(params.sessionKeys)) {
     rewritten += runOpenClawAgentWriteTransaction(
       (database) => {
+        params.assertCurrent?.();
         const db = getSessionKysely(database.db);
         let batchRewritten = 0;
         for (const sessionKey of batch) {
@@ -113,6 +115,7 @@ export function rewriteDoctorSessionEntries(params: {
           );
           batchRewritten += 1;
         }
+        params.assertCurrent?.();
         return batchRewritten;
       },
       toDatabaseOptions(resolved),
