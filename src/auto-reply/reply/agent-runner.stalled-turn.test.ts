@@ -416,7 +416,7 @@ describe("runReplyAgent stalled turn continuation", () => {
           cfg: {},
           clientRunId: "chat-send-run",
           sessionKey: queueKey,
-          sessionLoadOptions: {},
+          sessionLoadOptions: { agentId: "main" },
         },
       }),
     });
