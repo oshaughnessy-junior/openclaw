@@ -52,7 +52,11 @@ export async function settleAgentFallbackCycle(params: {
   if (abortReason) {
     settledLifecycleTerminal?.emit("end", runResult, terminalMetadata);
     await drainPendingToolTasks({ tasks: turn.pendingToolTasks, onTimeout: logVerbose });
-    return { kind: "aborted", reason: abortReason };
+    return {
+      kind: "aborted",
+      reason: abortReason,
+      ...(hasCompletedSourceReplyDeliveryEvidence(runResult) ? { sourceReplyDelivered: true } : {}),
+    };
   }
   cycle.commitTerminalOutcome();
   const fallbackAttempts = fallbackResult.attempts.map((attempt) => ({

@@ -146,7 +146,7 @@ export async function resolveFollowupDeliveryDecision(params: {
     // Like the dispatch-owned notice it replaces, it bypasses message-tool-only suppression.
     if (
       turn.queued.stalledTurnRecovery === true &&
-      isReplyOperationStalledBeforeOutput(turn.operation)
+      isReplyOperationStalledBeforeOutput(turn.operation, execution.outcome.sourceReplyDelivered)
     ) {
       const payloads = preparePayloads([
         markReplyPayloadForSourceSuppressionDelivery({

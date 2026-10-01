@@ -51,6 +51,8 @@ export type ReplyOperationRunState = {
   agentTurnOwner?: ReplyOperation;
   messagingToolSentTargets?: MessagingToolSend[];
   backgroundWorkStarted?: boolean;
+  /** The aborted agent turn had already delivered its source reply. */
+  sourceReplyDelivered?: true;
   preRunRejection?: ReplyPreRunRejectionCode;
   /**
    * Armed by the admitted interactive run owner. Dispatch consumes it once when a stale
@@ -77,7 +79,8 @@ export function recordReplyOperationAgentTurn(
   states: readonly ReplyOperationRunState[] | undefined,
   owner: ReplyOperation | undefined,
   outcome?:
-    | { kind: "aborted" | "rejected" }
+    | { kind: "aborted"; sourceReplyDelivered?: true }
+    | { kind: "rejected" }
     | {
         kind: "settled";
         status: "ok" | "failed";
@@ -91,6 +94,11 @@ export function recordReplyOperationAgentTurn(
     state.agentTurn = resolveAgentTurnExecutionStatus(
       outcome ?? (owner?.result?.kind === "aborted" ? owner.result : undefined),
     );
+    if (outcome?.kind === "aborted") {
+      state.sourceReplyDelivered = outcome.sourceReplyDelivered;
+    } else if (outcome || state.agentTurnOwner !== owner) {
+      state.sourceReplyDelivered = undefined;
+    }
     if (outcome?.kind === "settled") {
       state.messagingToolSentTargets = outcome.result.messagingToolSentTargets?.slice();
       state.backgroundWorkStarted = Boolean(

@@ -13,11 +13,16 @@ export const STALLED_TURN_GUIDANCE =
   "Keep further tool use to a minimum, do not repeat actions that already ran, and briefly " +
   "say what you could not verify.";
 
-/** A stale watchdog expired this operation before it produced output: the user saw nothing. */
+/**
+ * A stale watchdog expired this operation before it delivered output: the user saw
+ * nothing. Source delivery (for example a message-tool answer) survives the abort.
+ */
 export function isReplyOperationStalledBeforeOutput(
   operation: ReplyOperation | undefined,
+  sourceReplyDelivered: boolean | undefined,
 ): boolean {
   return (
+    sourceReplyDelivered !== true &&
     operation?.result?.kind === "failed" &&
     operation.result.code === "run_stalled" &&
     (operation.staleExpiryReason === "no_activity" ||

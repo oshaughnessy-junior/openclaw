@@ -47,6 +47,8 @@ type AbortedAgentTurn = {
   kind: "aborted";
   reason: "user" | "restart" | "superseded";
   compaction?: AgentTurnCompaction;
+  /** The run delivered its source reply before the abort; recovery must not repeat it. */
+  sourceReplyDelivered?: true;
 };
 
 /** Internal fallback-cycle result before caller-facing settlement projection. */

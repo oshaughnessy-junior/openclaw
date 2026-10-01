@@ -21,6 +21,7 @@ import { createReplyDispatcher } from "./reply-dispatcher.js";
 import {
   REPLY_OPERATION_RUN_STATE,
   type ReplyOperationRunState,
+  recordReplyOperationAgentTurn,
   resolveReplyOperationRunState,
 } from "./reply-operation-run-state.js";
 import { buildTestCtx } from "./test-ctx.js";
@@ -455,9 +456,12 @@ describe("dispatchReplyFromConfig visible admission recovery", () => {
     { reason: "stuck_recovery", continued: false, notice: true },
     { reason: "stuck_recovery", continued: true, notice: false },
     { reason: "finalization_stalled", continued: true, notice: false },
+    // The turn already answered through the message tool before it stalled.
+    { reason: "stuck_recovery", continued: true, notice: false, delivered: true },
   ] as const)(
     "sends the stall notice only as a last resort ($reason, continued=$continued)",
-    async ({ reason, continued, notice }) => {
+    async ({ reason, continued, notice, ...testCase }) => {
+      const delivered = "delivered" in testCase;
       const resolverStarted = createDeferred();
       const continueStalledTurn = vi.fn(() => continued === true);
       const dispatchParams = createVisibleDispatchParams(async (_ctx, options) => {
@@ -469,6 +473,12 @@ describe("dispatchReplyFromConfig visible admission recovery", () => {
         await new Promise<void>((resolve) => {
           options?.abortSignal?.addEventListener("abort", () => resolve(), { once: true });
         });
+        if (delivered) {
+          recordReplyOperationAgentTurn(runState && [runState], replyRunRegistry.get(sessionKey), {
+            kind: "aborted",
+            sourceReplyDelivered: true,
+          });
+        }
         const error = new Error("reply expired");
         error.name = "AbortError";
         throw error;
@@ -482,7 +492,7 @@ describe("dispatchReplyFromConfig visible admission recovery", () => {
 
       await expect(dispatchPromise).resolves.toMatchObject({ queuedFinal: notice });
       expect(continueStalledTurn).toHaveBeenCalledTimes(
-        continued !== undefined && reason !== "finalization_stalled" ? 1 : 0,
+        continued !== undefined && reason !== "finalization_stalled" && !delivered ? 1 : 0,
       );
       if (notice) {
         expect(dispatchParams.dispatcher.sendFinalReply).toHaveBeenCalledWith({

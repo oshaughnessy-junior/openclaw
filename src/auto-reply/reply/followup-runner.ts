@@ -177,7 +177,11 @@ export function createFollowupRunner(
       disposition = { kind: "consumed" };
       completion =
         turn.queued.stalledTurnRecovery === true &&
-        isReplyOperationStalledBeforeOutput(turn.operation)
+        isReplyOperationStalledBeforeOutput(
+          turn.operation,
+          execution.execution.outcome.kind === "aborted" &&
+            execution.execution.outcome.sourceReplyDelivered,
+        )
           ? // A watchdog stall is a failure, not a user cancel: source owners
             // surface its last-resort notice through their terminal error.
             { kind: "failed", error: STALLED_TURN_NOTICE_TEXT }

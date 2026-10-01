@@ -9,6 +9,7 @@ import type {
 import { peekSessionMcpRuntime } from "../../agents/agent-bundle-mcp-manager-api.js";
 import { resolveBootstrapWarningSignaturesSeen } from "../../agents/bootstrap-budget.js";
 import { classifyFailoverReason } from "../../agents/embedded-agent-helpers.js";
+import { hasCompletedSourceReplyDeliveryEvidence } from "../../agents/embedded-agent-runner/delivery-evidence.js";
 import {
   createDeferredEmbeddedRunLifecycleManager,
   type DeferredEmbeddedRunLifecycleManager,
@@ -593,7 +594,18 @@ async function executeAgentTurnOutcome(
     }
     const abortReason = resolveReplyOperationAbortReason(executionParams.replyOperation);
     if (abortReason) {
-      return { runId, outcome: { kind: "aborted", reason: abortReason, ...completedCompaction() } };
+      return {
+        runId,
+        outcome: {
+          kind: "aborted",
+          reason: abortReason,
+          ...(internal.kind === "completed" &&
+          hasCompletedSourceReplyDeliveryEvidence(internal.result)
+            ? { sourceReplyDelivered: true }
+            : {}),
+          ...completedCompaction(),
+        },
+      };
     }
     if (internal.kind === "final") {
       return {

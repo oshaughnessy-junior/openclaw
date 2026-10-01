@@ -459,8 +459,10 @@ export async function prepareDispatchOperationContext(state: PrepareDispatchDeli
     // terminal-settle stalls already produced/settled output, so a notice is noise.
     // Last resort: an armed run owner first hands the request to the follow-up lane.
     const queuedFinal =
-      isReplyOperationStalledBeforeOutput(operation) &&
-      state.replyOperationRunState.continueStalledTurn?.() !== true
+      isReplyOperationStalledBeforeOutput(
+        operation,
+        state.replyOperationRunState.sourceReplyDelivered,
+      ) && state.replyOperationRunState.continueStalledTurn?.() !== true
         ? dispatcher.sendFinalReply({ text: STALLED_TURN_NOTICE_TEXT, isError: true })
         : false;
     if (

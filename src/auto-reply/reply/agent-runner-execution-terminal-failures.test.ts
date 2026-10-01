@@ -37,6 +37,8 @@ import {
 } from "./agent-runner-execution.test-support.js";
 import { buildKnownAgentRunFailureReplyPayload } from "./agent-runner-failure-reply.js";
 import { createReplyOperation } from "./reply-run-registry.js";
+import { expireStaleReplyOperation } from "./reply-run-registry.state.js";
+import { isReplyOperationStalledBeforeOutput } from "./stalled-turn-recovery.js";
 
 const state = await setupAgentRunnerExecutionTestState();
 
@@ -501,6 +503,44 @@ describe("executeAgentTurn: terminal failures", () => {
     });
     expect(failMock).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { label: "a final message-tool answer", sourceReplyFinal: true, stalledBeforeOutput: false },
+    { label: "only a progress message", sourceReplyFinal: false, stalledBeforeOutput: true },
+  ])(
+    "treats a stall after $label as stalled-before-output=$stalledBeforeOutput",
+    async ({ sourceReplyFinal, stalledBeforeOutput }) => {
+      const replyOperation = createReplyOperation({
+        sessionKey: "agent:main:telegram:direct:delivered-then-stalled",
+        sessionId: "delivered-then-stalled",
+        resetTriggered: false,
+      });
+      replyOperation.setPhase("running");
+      state.runEmbeddedAgentMock.mockImplementationOnce(async () => {
+        // The answer reached the chat through the message tool; the next model
+        // request then stalls until stuck-session recovery expires the turn.
+        expireStaleReplyOperation(replyOperation, "stuck_recovery");
+        return {
+          payloads: [],
+          didDeliverSourceReplyViaMessageTool: true,
+          messagingToolSourceReplyPayloads: [{ text: "391", sourceReplyFinal }],
+          meta: { aborted: true },
+        };
+      });
+      const { executeAgentTurn } = await import("./agent-runner-execution.js");
+
+      const execution = await executeAgentTurn(createMinimalRunAgentTurnParams({ replyOperation }));
+      replyOperation.complete();
+
+      expect(execution.outcome.kind).toBe("aborted");
+      expect(
+        isReplyOperationStalledBeforeOutput(
+          replyOperation,
+          execution.outcome.kind === "aborted" ? execution.outcome.sourceReplyDelivered : undefined,
+        ),
+      ).toBe(stalledBeforeOutput);
+    },
+  );
 
   it("uses compact generic copy for raw external chat errors when verbose is off", async () => {
     const agentEvents = await import("../../infra/agent-events.js");
