@@ -500,9 +500,7 @@ async function runDoctorHealthFlowWithResult(
         await measureGatewayBootstrapStep("doctor.maintenance.finish", () =>
           activeMaintenance.finish(
             completed?.cfg,
-            completed
-              ? (nextConfig) => writeDoctorGatewayConfig(completed, nextConfig)
-              : undefined,
+            completed ? (nextConfig) => writeDoctorGatewayConfig(completed, nextConfig) : undefined,
             failure,
           ),
         );
