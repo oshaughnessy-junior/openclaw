@@ -28,13 +28,10 @@ import {
   ensureProfileForEmail,
   ensureProfileForTailscaleIdentity,
 } from "./user-profiles.js";
-import type {
-  UserProfileWorkerOperations,
-  UserProfileWriteOperations,
-} from "./user-profiles.worker-contract.js";
+import type { UserProfileWorkerOperations } from "./user-profiles.worker-contract.js";
 import type { WorkerOperationHandlersFor } from "./worker-operation-registry.js";
 
-const userProfileWriteOperations = {
+export const userProfileOperations = {
   "userProfiles.setRole": (input, { open, stateOptions }) =>
     executeUserProfileWrite(
       "userProfiles.setRole",
@@ -111,10 +108,6 @@ const userProfileWriteOperations = {
       },
       input.profileId,
     ),
-} satisfies WorkerOperationHandlersFor<UserProfileWriteOperations>;
-
-export const userProfileOperations = {
-  ...userProfileWriteOperations,
   "userProfiles.list": (_input, { open, stateOptions }) =>
     listUserProfilesSync({ ...stateOptions(), database: open() }),
   "userProfiles.directory": ({ limit }, { open, stateOptions }) => {
