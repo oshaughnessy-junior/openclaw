@@ -1,0 +1,58 @@
+name: PR 205356 installed Ollama proof
+
+on:
+  push:
+    branches: [proof/pr205356-installed-cli-20261127]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proof-pr205356-installed-cli-20261127
+  cancel-in-progress: false
+
+jobs:
+  installed-ollama:
+    if: github.repository == 'oshaughnessy-junior/openclaw' && github.ref == 'refs/heads/proof/pr205356-installed-cli-20261127'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - name: Select repository Node runtime
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.1
+          package-manager-cache: false
+      - name: Acquire separate anonymous public checkouts
+        shell: bash
+        env:
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_NOSYSTEM: "1"
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          repo=https://github.com/oshaughnessy-junior/openclaw.git
+          checkout() {
+            git init -q "$1"
+            git -C "$1" remote add origin "$repo"
+            git -C "$1" fetch --depth=1 --no-tags origin "$2"
+            git -C "$1" checkout --detach FETCH_HEAD
+            test "$(git -C "$1" rev-parse HEAD)" = "$2"
+          }
+          checkout proof-control "$GITHUB_SHA"
+          test "$(git -C proof-control ls-tree -r --name-only HEAD | wc -l)" -eq 2
+          test -z "$(git -C proof-control cat-file commit HEAD | sed -n '1,/^$/ { /^parent /p; }')"
+          checkout candidate fe376fb7d15377cc9ab870cd6acf58c4d57d3ffd
+      - name: Build, install, and exercise memory with real Ollama
+        shell: bash
+        run: |
+          python3 proof-control/.github/proof/ollama-installed-205356.py \
+            "$GITHUB_WORKSPACE/candidate" "$RUNNER_TEMP/proof-205356-receipt.json"
+      - name: Retain sanitized proof receipt
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pr205356-installed-ollama-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/proof-205356-receipt.json
+          if-no-files-found: error
+          retention-days: 7
